@@ -26,7 +26,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <style>
-    /* CSS Variables & Theme setup (Personalizados & Artesanal) */
+    /* CSS Variables & Theme setup */
     :root {
       --primary: #c05621;
       --primary-hover: #9c4221;
@@ -564,7 +564,6 @@
       padding: 4px;
     }
 
-    /* Checkout Form Section in Drawer */
     .checkout-form {
       margin-top: 10px;
       padding-top: 16px;
@@ -696,6 +695,26 @@
     .empty-state i {
       margin-bottom: 12px;
       opacity: 0.5;
+    }
+
+    /* Preview Image Box */
+    .img-preview-container {
+      margin-top: 8px;
+      width: 80px;
+      height: 80px;
+      border-radius: var(--radius-sm);
+      border: 1px dashed #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #f7fafc;
+    }
+
+    .img-preview-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
 
     /* Floating Navigation for Mobile */
@@ -956,11 +975,26 @@
           <label>Valor / Preço (R$) *</label>
           <input type="number" step="0.01" id="prod-price" required placeholder="35.00">
         </div>
+        
+        <!-- OPÇÕES DE FOTO: UPLOAD DE ARQUIVO OU URL -->
         <div class="form-group">
-          <label>Link / URL da Foto do Produto *</label>
-          <input type="url" id="prod-img" required placeholder="https://exemplo.com/sua-foto.jpg">
-          <small style="color: var(--text-muted); font-size: 0.72rem;">Cole aqui o link da imagem da internet ou redes sociais.</small>
+          <label>Enviar Foto do Aparelho / Computador</label>
+          <input type="file" id="prod-file" accept="image/*">
         </div>
+
+        <div class="form-group">
+          <label>Ou Cole o Link / URL da Foto da Internet</label>
+          <input type="url" id="prod-img" placeholder="https://exemplo.com/sua-foto.jpg">
+        </div>
+
+        <!-- Preview da Foto -->
+        <div class="form-group">
+          <label>Pré-visualização da Foto:</label>
+          <div class="img-preview-container" id="preview-container">
+            <span style="font-size: 0.7rem; color: #a0aec0;">Sem foto</span>
+          </div>
+        </div>
+
         <div class="form-group">
           <label>Selo de Destaque (Opcional)</label>
           <input type="text" id="prod-badge" placeholder="Ex: Mais Vendido, Lançamento, Oferta">
@@ -995,11 +1029,9 @@
       appId: "1:123456789:web:abcdef"
     };
 
-    // Inicializar Firebase
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    // Produtos Padrão de Exemplo
     const DEFAULT_PRODUCTS = [
       {
         name: "Caneca de Porcelana Personalizada 325ml",
@@ -1043,7 +1075,6 @@
       }
     ];
 
-    // State Management
     let products = [];
     let cart = JSON.parse(localStorage.getItem('miter_cart')) || [];
     let activeCategory = "Todos";
@@ -1052,7 +1083,8 @@
       storeName: "Miter Personalizados"
     };
 
-    // DOM Elements
+    let selectedImageBase64 = "";
+
     const productsGrid = document.getElementById('products-grid');
     const categoriesContainer = document.getElementById('categories-container');
     const searchInput = document.getElementById('search-input');
@@ -1063,8 +1095,32 @@
     const checkoutSection = document.getElementById('checkout-section');
     const adminModal = document.getElementById('admin-modal');
     const toastEl = document.getElementById('toast');
+    const previewContainer = document.getElementById('preview-container');
 
-    // Setup PWA Dynamic Manifest
+    // Lidar com Upload de Arquivo e conversão para Base64
+    document.getElementById('prod-file').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(uploadEvent) {
+          selectedImageBase64 = uploadEvent.target.result;
+          previewContainer.innerHTML = `<img src="${selectedImageBase64}" alt="Preview">`;
+          document.getElementById('prod-img').value = ""; // Limpa a URL caso use arquivo
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // Lidar com digitação de URL
+    document.getElementById('prod-img').addEventListener('input', function(e) {
+      const url = e.target.value.trim();
+      if (url) {
+        selectedImageBase64 = url;
+        previewContainer.innerHTML = `<img src="${url}" alt="Preview" onerror="this.onerror=null;this.src='https://via.placeholder.com/80';">`;
+        document.getElementById('prod-file').value = ""; // Limpa arquivo caso use URL
+      }
+    });
+
     function initPWA() {
       const manifestData = {
         name: config.storeName,
@@ -1100,19 +1156,16 @@
       }
     }
 
-    // App Initialization & Realtime Sync
     function init() {
       initPWA();
       updateConfigUI();
       
-      // Sincronização em Tempo Real com Firestore
       db.collection("produtos").onSnapshot((snapshot) => {
         products = [];
         snapshot.forEach((doc) => {
           products.push({ id: doc.id, ...doc.data() });
         });
 
-        // Se o banco estiver vazio, popula com os produtos padrão automaticamente
         if (products.length === 0) {
           DEFAULT_PRODUCTS.forEach(p => db.collection("produtos").add(p));
         }
@@ -1196,7 +1249,6 @@
 
     searchInput.addEventListener('input', renderProducts);
 
-    // Cart Management
     function addToCart(productId) {
       const existing = cart.find(item => item.id === productId);
       if (existing) {
@@ -1304,7 +1356,6 @@
     document.getElementById('btn-close-cart').addEventListener('click', closeCart);
     drawerOverlay.addEventListener('click', closeCart);
 
-    // Send WhatsApp Order
     document.getElementById('btn-send-whatsapp').addEventListener('click', () => {
       if (cart.length === 0) {
         alert("Seu carrinho está vazio!");
@@ -1352,9 +1403,13 @@
       window.open(`https://api.whatsapp.com/send?phone=${targetPhone}&text=${encodedMessage}`, '_blank');
     });
 
-    // Admin Modal Controls
     function openAdmin() { adminModal.classList.add('open'); }
-    function closeAdmin() { adminModal.classList.remove('open'); }
+    function closeAdmin() { 
+      adminModal.classList.remove('open');
+      document.getElementById('add-product-form').reset();
+      selectedImageBase64 = "";
+      previewContainer.innerHTML = `<span style="font-size: 0.7rem; color: #a0aec0;">Sem foto</span>`;
+    }
 
     document.getElementById('btn-admin').addEventListener('click', openAdmin);
     document.getElementById('mobile-admin-btn').addEventListener('click', openAdmin);
@@ -1371,15 +1426,18 @@
       updateConfigUI();
     });
 
-    // Add New Product directly to Firestore (Nuvem)
+    // Enviar novo produto para o Firestore (Nuvem) com suporte a foto do arquivo ou URL
     document.getElementById('add-product-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+
+      const finalImage = selectedImageBase64 || "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=600&q=80";
+
       const newProd = {
         name: document.getElementById('prod-name').value,
         category: document.getElementById('prod-category').value,
         price: parseFloat(document.getElementById('prod-price').value),
         badge: document.getElementById('prod-badge').value.trim() || "Novo",
-        image: document.getElementById('prod-img').value || "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=600&q=80",
+        image: finalImage,
         description: document.getElementById('prod-desc').value || "Produto personalizado de alta qualidade.",
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       };
@@ -1388,13 +1446,11 @@
         await db.collection("produtos").add(newProd);
         closeAdmin();
         showToast("Produto cadastrado na nuvem com sucesso!");
-        e.target.reset();
       } catch (err) {
         alert("Erro ao salvar no banco de dados. Verifique sua conexão ou configuração do Firebase.");
       }
     });
 
-    // Restore Default Products in Firestore
     document.getElementById('btn-restore-default').addEventListener('click', async () => {
       if (confirm("Deseja substituir todos os produtos atuais pelos exemplos padrão na nuvem?")) {
         try {
