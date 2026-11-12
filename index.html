@@ -21,6 +21,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.js"></script>
 
+  <!-- Firebase SDK (Compat v10) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
   <style>
     /* CSS Variables & Theme setup (Personalizados & Artesanal) */
     :root {
@@ -351,7 +355,7 @@
     .product-img-wrapper {
       position: relative;
       width: 100%;
-      padding-top: 100%; /* 1:1 Aspect Ratio */
+      padding-top: 100%;
       background: #f7fafc;
       overflow: hidden;
     }
@@ -979,10 +983,25 @@
 
   <!-- Application Logic JS -->
   <script>
-    // Initial Default Data (Personalized Products)
+    // ==========================================
+    // COLE SUAS CONFIGURAÇÕES DO FIREBASE ABAIXO:
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "SUA_API_KEY_AQUI",
+      authDomain: "seu-projeto.firebaseapp.com",
+      projectId: "seu-projeto",
+      storageBucket: "seu-projeto.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "1:123456789:web:abcdef"
+    };
+
+    // Inicializar Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // Produtos Padrão de Exemplo
     const DEFAULT_PRODUCTS = [
       {
-        id: 1,
         name: "Caneca de Porcelana Personalizada 325ml",
         category: "Canecas",
         price: 35.00,
@@ -991,7 +1010,6 @@
         description: "Estampa em alta definição. Personalize com foto, nome, frase ou logotipo de sua preferência."
       },
       {
-        id: 2,
         name: "Planner Diário de Mesa Espiral",
         category: "Papelaria",
         price: 49.90,
@@ -1000,7 +1018,6 @@
         description: "Capa dura personalizada com seu nome. Acompanha cartela de adesivos e controle de metas."
       },
       {
-        id: 3,
         name: "Almofada Decorativa Estampada 40x40cm",
         category: "Almofadas",
         price: 39.90,
@@ -1009,7 +1026,6 @@
         description: "Enchimento em fibra siliconada super macia. Tecido lavável com zíper invisível."
       },
       {
-        id: 4,
         name: "Chaveiro Acrílico com Foto e Nome",
         category: "Chaveiros",
         price: 15.00,
@@ -1018,7 +1034,6 @@
         description: "Ideal para brindes de eventos, aniversários e datas comemorativas."
       },
       {
-        id: 5,
         name: "Kit Caneca + Bloco de Notas Personalizado",
         category: "Kits",
         price: 65.00,
@@ -1029,11 +1044,11 @@
     ];
 
     // State Management
-    let products = JSON.parse(localStorage.getItem('miter_products')) || DEFAULT_PRODUCTS;
+    let products = [];
     let cart = JSON.parse(localStorage.getItem('miter_cart')) || [];
     let activeCategory = "Todos";
     let config = JSON.parse(localStorage.getItem('miter_config')) || {
-      phone: "5531999998888", // Número WhatsApp Padrão
+      phone: "5531999998888",
       storeName: "Miter Personalizados"
     };
 
@@ -1069,19 +1084,14 @@
       const manifestURL = URL.createObjectURL(blob);
       document.getElementById('manifest-placeholder').setAttribute('href', manifestURL);
 
-      // Register Inline Service Worker for Offline Cache
       if ('serviceWorker' in navigator) {
         const swCode = `
           const CACHE_NAME = 'miter-pwa-v1';
           self.addEventListener('install', e => {
-            e.waitUntil(
-              caches.open(CACHE_NAME).then(cache => cache.addAll(['/']))
-            );
+            e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['/'])));
           });
           self.addEventListener('fetch', e => {
-            e.respondWith(
-              caches.match(e.request).then(res => res || fetch(e.request))
-            );
+            e.respondWith(caches.match(e.request).then(res => res || fetch(e.request)));
           });
         `;
         const swBlob = new Blob([swCode], {type: 'text/javascript'});
@@ -1090,24 +1100,39 @@
       }
     }
 
-    // App Initialization
+    // App Initialization & Realtime Sync
     function init() {
       initPWA();
       updateConfigUI();
-      renderCategories();
-      renderProducts();
+      
+      // Sincronização em Tempo Real com Firestore
+      db.collection("produtos").onSnapshot((snapshot) => {
+        products = [];
+        snapshot.forEach((doc) => {
+          products.push({ id: doc.id, ...doc.data() });
+        });
+
+        // Se o banco estiver vazio, popula com os produtos padrão automaticamente
+        if (products.length === 0) {
+          DEFAULT_PRODUCTS.forEach(p => db.collection("produtos").add(p));
+        }
+
+        renderCategories();
+        renderProducts();
+      }, (error) => {
+        console.error("Erro ao sincronizar em tempo real:", error);
+      });
+
       updateCartUI();
       lucide.createIcons();
     }
 
-    // Update Store Name & Settings UI
     function updateConfigUI() {
       document.getElementById('store-name-display').innerText = config.storeName;
       document.getElementById('config-phone').value = config.phone;
       document.getElementById('config-store-name').value = config.storeName;
     }
 
-    // Category List Renderer
     function renderCategories() {
       const categories = ["Todos", ...new Set(products.map(p => p.category))];
       categoriesContainer.innerHTML = categories.map(cat => `
@@ -1130,12 +1155,11 @@
       renderProducts();
     }
 
-    // Products Render Function
     function renderProducts() {
       const query = searchInput.value.toLowerCase().trim();
       const filtered = products.filter(p => {
         const matchesCategory = activeCategory === "Todos" || p.category === activeCategory;
-        const matchesQuery = p.name.toLowerCase().includes(query) || p.description.toLowerCase().includes(query);
+        const matchesQuery = p.name.toLowerCase().includes(query) || (p.description && p.description.toLowerCase().includes(query));
         return matchesCategory && matchesQuery;
       });
 
@@ -1156,10 +1180,10 @@
           <div class="product-info">
             <span class="product-category">${product.category}</span>
             <h3 class="product-title">${product.name}</h3>
-            <p class="product-desc">${product.description}</p>
+            <p class="product-desc">${product.description || ''}</p>
             <div class="product-footer">
-              <span class="product-price">R$ ${product.price.toFixed(2).replace('.', ',')}</span>
-              <button class="btn-add-cart" onclick="addToCart(${product.id})">
+              <span class="product-price">R$ ${Number(product.price).toFixed(2).replace('.', ',')}</span>
+              <button class="btn-add-cart" onclick="addToCart('${product.id}')">
                 <i data-lucide="plus" size="16"></i> Adicionar
               </button>
             </div>
@@ -1170,17 +1194,16 @@
       lucide.createIcons();
     }
 
-    // Search Input Listener
     searchInput.addEventListener('input', renderProducts);
 
-    // Cart Management Logic
+    // Cart Management
     function addToCart(productId) {
       const existing = cart.find(item => item.id === productId);
       if (existing) {
         existing.qty += 1;
       } else {
         const prod = products.find(p => p.id === productId);
-        cart.push({ ...prod, qty: 1 });
+        if (prod) cart.push({ ...prod, qty: 1 });
       }
       saveCart();
       updateCartUI();
@@ -1228,14 +1251,14 @@
             <img src="${item.image}" class="cart-item-img" alt="${item.name}">
             <div class="cart-item-details">
               <div class="cart-item-title">${item.name}</div>
-              <div class="cart-item-price">R$ ${item.price.toFixed(2).replace('.', ',')}</div>
+              <div class="cart-item-price">R$ ${Number(item.price).toFixed(2).replace('.', ',')}</div>
               <div class="qty-controls">
-                <button class="btn-qty" onclick="updateQty(${item.id}, -1)">-</button>
+                <button class="btn-qty" onclick="updateQty('${item.id}', -1)">-</button>
                 <span class="qty-num">${item.qty}</span>
-                <button class="btn-qty" onclick="updateQty(${item.id}, 1)">+</button>
+                <button class="btn-qty" onclick="updateQty('${item.id}', 1)">+</button>
               </div>
             </div>
-            <button class="btn-remove" onclick="removeFromCart(${item.id})">
+            <button class="btn-remove" onclick="removeFromCart('${item.id}')">
               <i data-lucide="trash-2" size="18"></i>
             </button>
           </div>
@@ -1247,7 +1270,7 @@
     }
 
     function calculateCartTotal() {
-      const subtotal = cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
+      const subtotal = cart.reduce((acc, item) => acc + (Number(item.price) * item.qty), 0);
       const deliveryType = document.getElementById('cust-delivery').value;
       const addressGroup = document.getElementById('address-group');
       
@@ -1266,7 +1289,6 @@
       document.getElementById('total-val').innerText = `R$ ${total.toFixed(2).replace('.', ',')}`;
     }
 
-    // Drawer Open/Close Controls
     function openCart() {
       drawerOverlay.classList.add('open');
       cartDrawer.classList.add('open');
@@ -1305,24 +1327,19 @@
         return;
       }
 
-      // Format WhatsApp Message
       let message = `🎁 *NOVO PEDIDO DE PERSONALIZADOS - ${config.storeName.toUpperCase()}* 🎁\n\n`;
       message += `👤 *Cliente:* ${name}\n`;
       message += `🚚 *Tipo:* ${delivery === 'entrega' ? 'Entrega no Endereço' : 'Retirada em Mãos'}\n`;
-      if (delivery === 'entrega') {
-        message += `📍 *Endereço:* ${address}\n`;
-      }
+      if (delivery === 'entrega') message += `📍 *Endereço:* ${address}\n`;
       message += `💳 *Pagamento:* ${payment}\n`;
-      if (notes) {
-        message += `✏️ *Detalhes da Personalização:* ${notes}\n`;
-      }
+      if (notes) message += `✏️ *Detalhes da Personalização:* ${notes}\n`;
 
       message += `\n🛒 *ITENS ENCOMENDADOS:*\n`;
       cart.forEach(item => {
-        message += `• ${item.qty}x ${item.name} - R$ ${(item.price * item.qty).toFixed(2).replace('.', ',')}\n`;
+        message += `• ${item.qty}x ${item.name} - R$ ${(Number(item.price) * item.qty).toFixed(2).replace('.', ',')}\n`;
       });
 
-      const subtotal = cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
+      const subtotal = cart.reduce((acc, item) => acc + (Number(item.price) * item.qty), 0);
       const shipping = delivery === 'entrega' ? 10.00 : 0;
       const total = subtotal + shipping;
 
@@ -1332,25 +1349,17 @@
 
       const encodedMessage = encodeURIComponent(message);
       const targetPhone = config.phone.replace(/\D/g, '');
-      const whatsappURL = `https://api.whatsapp.com/send?phone=${targetPhone}&text=${encodedMessage}`;
-
-      window.open(whatsappURL, '_blank');
+      window.open(`https://api.whatsapp.com/send?phone=${targetPhone}&text=${encodedMessage}`, '_blank');
     });
 
-    // Admin Panel Logic (Aba Digitável)
-    function openAdmin() {
-      adminModal.classList.add('open');
-    }
-
-    function closeAdmin() {
-      adminModal.classList.remove('open');
-    }
+    // Admin Modal Controls
+    function openAdmin() { adminModal.classList.add('open'); }
+    function closeAdmin() { adminModal.classList.remove('open'); }
 
     document.getElementById('btn-admin').addEventListener('click', openAdmin);
     document.getElementById('mobile-admin-btn').addEventListener('click', openAdmin);
     document.getElementById('btn-close-admin').addEventListener('click', closeAdmin);
 
-    // Save Store Settings
     document.getElementById('config-phone').addEventListener('change', (e) => {
       config.phone = e.target.value;
       localStorage.setItem('miter_config', JSON.stringify(config));
@@ -1362,50 +1371,54 @@
       updateConfigUI();
     });
 
-    // Add New Product (Digitável)
-    document.getElementById('add-product-form').addEventListener('submit', (e) => {
+    // Add New Product directly to Firestore (Nuvem)
+    document.getElementById('add-product-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const newProd = {
-        id: Date.now(),
         name: document.getElementById('prod-name').value,
         category: document.getElementById('prod-category').value,
         price: parseFloat(document.getElementById('prod-price').value),
         badge: document.getElementById('prod-badge').value.trim() || "Novo",
         image: document.getElementById('prod-img').value || "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=600&q=80",
-        description: document.getElementById('prod-desc').value || "Produto personalizado de alta qualidade."
+        description: document.getElementById('prod-desc').value || "Produto personalizado de alta qualidade.",
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
       };
 
-      products.unshift(newProd);
-      localStorage.setItem('miter_products', JSON.stringify(products));
-      renderCategories();
-      renderProducts();
-      closeAdmin();
-      showToast("Novo produto cadastrado com sucesso!");
-      e.target.reset();
-    });
-
-    // Restore Default Products
-    document.getElementById('btn-restore-default').addEventListener('click', () => {
-      if (confirm("Deseja restaurar os produtos de exemplo do catálogo?")) {
-        products = DEFAULT_PRODUCTS;
-        localStorage.setItem('miter_products', JSON.stringify(products));
-        renderCategories();
-        renderProducts();
+      try {
+        await db.collection("produtos").add(newProd);
         closeAdmin();
-        showToast("Produtos restaurados!");
+        showToast("Produto cadastrado na nuvem com sucesso!");
+        e.target.reset();
+      } catch (err) {
+        alert("Erro ao salvar no banco de dados. Verifique sua conexão ou configuração do Firebase.");
       }
     });
 
-    // Show Toast Function
+    // Restore Default Products in Firestore
+    document.getElementById('btn-restore-default').addEventListener('click', async () => {
+      if (confirm("Deseja substituir todos os produtos atuais pelos exemplos padrão na nuvem?")) {
+        try {
+          const snapshot = await db.collection("produtos").get();
+          const batch = db.batch();
+          snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+
+          DEFAULT_PRODUCTS.forEach(p => db.collection("produtos").add(p));
+
+          closeAdmin();
+          showToast("Catálogo restaurado na nuvem!");
+        } catch (err) {
+          alert("Erro ao restaurar catálogo.");
+        }
+      }
+    });
+
     function showToast(msg) {
       toastEl.innerText = msg;
       toastEl.classList.add('show');
-      setTimeout(() => {
-        toastEl.classList.remove('show');
-      }, 2500);
+      setTimeout(() => toastEl.classList.remove('show'), 2500);
     }
 
-    // PWA Prompt Installation Listener
     let deferredPrompt;
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
@@ -1423,8 +1436,8 @@
       }
     });
 
-    // Initialize Page
     window.addEventListener('DOMContentLoaded', init);
   </script>
 </body>
 </html>
+
